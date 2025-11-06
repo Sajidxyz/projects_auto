@@ -1,0 +1,13 @@
+flask==3.1.2
+apscheduler==3.11.1
+yt_dlp==2025.10.14
+pytz==2025.2
+moviepy==1.0.3
+pydub==0.25.1
+edge_tts==7.2.3
+deep_translator==1.11.4
+google_auth_oauthlib==1.2.2
+google_api_python_client==2.184.0
+google_auth==2.41.1
+reportlab==4.4.2
+fpdf2==2.8.3

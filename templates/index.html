@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YT Shorts Auto-Cloner</title>
+  <style>
+    body{font-family:Arial;background:#f8f9fa;text-align:center;padding:40px;}
+    .box{max-width:550px;margin:auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.1);}
+    button{padding:12px 28px;font-size:1.1rem;background:#0d6efd;color:#fff;border:none;border-radius:6px;cursor:pointer;}
+    button:disabled{background:#6c757d;cursor:not-allowed;}
+    .info{margin-top:20px;font-size:1rem;color:#333;}
+  </style>
+</head>
+<body>
+<div class="box">
+  <h1>YT Shorts Automation</h1>
+  <p>One short is processed <b>every day at 06:30 AM</b>.</p>
+
+  <button id="runBtn">Run Now (Manual)</button>
+
+  <div class="info" id="info">
+    Next auto-run: <b>{{ next_run }}</b><br>
+    Status: <span id="stat">loading…</span>
+  </div>
+</div>
+
+<script>
+  const btn = document.getElementById('runBtn');
+  const stat = document.getElementById('stat');
+
+  function refresh() {
+    fetch('/status')
+      .then(r => r.json())
+      .then(d => {
+        document.querySelector('.info b').textContent = d.next_scheduled;
+        stat.textContent = d.running ? 'Running…' : 'Idle';
+        btn.disabled = d.running;
+        btn.textContent = d.running ? 'Running…' : 'Run Now (Manual)';
+      });
+  }
+
+  btn.onclick = () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Starting…';
+    fetch('/run-now', {method:'POST'})
+      .then(r=>r.json())
+      .then(d=> { alert(d.message); refresh(); })
+      .catch(()=>{ alert('Error'); refresh(); });
+  };
+
+  refresh();
+  setInterval(refresh, 25000);   // update every 25 s
+</script>
+</body>
+</html>
