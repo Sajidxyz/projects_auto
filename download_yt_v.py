@@ -7,9 +7,9 @@ import pytz
 def get_yt(url, save_path='.'):
     """
     Download YouTube video, transcript, and save metadata to JSON.
-    Automatically schedules one video per day at 6:30 AM IST.
-    Handles missing files safely.
+    Now includes cookie authentication for Render-safe deployment.
     """
+
     result = {
         'title': None,
         'description': None,
@@ -19,14 +19,10 @@ def get_yt(url, save_path='.'):
         'transcript_file': None
     }
 
-    # ✅ Ensure save directory exists
-    try:
-        os.makedirs(save_path, exist_ok=True)
-    except Exception as e:
-        print(f"❌ Cannot create save folder: {e}")
-        return result
+    # ✅ Ensure directory exists
+    os.makedirs(save_path, exist_ok=True)
 
-    # File paths
+    # Paths
     video_file = os.path.join(save_path, "yt_video.mp4")
     json_file = os.path.join(save_path, "yt_metadata.json")
     transcript_file = os.path.join(save_path, "yt_transcript.txt")
@@ -35,59 +31,41 @@ def get_yt(url, save_path='.'):
     ist = pytz.timezone('Asia/Kolkata')
     now_ist = datetime.now(ist)
 
-    # ✅ Load or create tracking file safely
+    # ✅ Load tracking
+    processed = []
     if os.path.exists(track_file):
         try:
             with open(track_file, 'r', encoding='utf-8') as f:
                 processed = json.load(f)
-        except json.JSONDecodeError:
-            print("⚠️ Corrupted process_track.json detected — resetting it.")
-            processed = []
-        except Exception as e:
-            print(f"⚠️ Could not read process_track.json: {e}")
-            processed = []
-    else:
-        processed = []
-
-    # ✅ Determine next schedule date
-    if processed:
-        last_item = processed[-1]
-        last_schedule_str = last_item.get('schedule_date', '')
-        try:
-            last_date = datetime.strptime(last_schedule_str, "%d-%m-%Y")
-            next_date = last_date + timedelta(days=1)
         except Exception:
-            next_date = now_ist.replace(hour=6, minute=30, second=0, microsecond=0)
-            if next_date <= now_ist:
-                next_date += timedelta(days=1)
-    else:
-        next_date = now_ist.replace(hour=6, minute=30, second=0, microsecond=0)
-        if next_date <= now_ist:
-            next_date += timedelta(days=1)
+            print("⚠️ process_track.json is corrupted, resetting...")
 
-    schedule_time = next_date.replace(hour=6, minute=30, second=0, microsecond=0)
-    schedule_date = schedule_time.strftime("%d-%m-%Y")
-    schedule_datetime = schedule_time.strftime("%d-%m-%Y %I:%M %p IST")
+    # ✅ Next schedule logic
+    next_date = now_ist.replace(hour=6, minute=30, second=0, microsecond=0)
+    if next_date <= now_ist:
+        next_date += timedelta(days=1)
 
-    print(f"\n📅 This video will be scheduled for: {schedule_datetime}")
+    schedule_date = next_date.strftime("%d-%m-%Y")
+    schedule_datetime = next_date.strftime("%d-%m-%Y %I:%M %p IST")
+    print(f"📅 Scheduled for: {schedule_datetime}")
 
-    # ✅ Skip if already processed
-    for item in processed:
-        if item.get('url') == url:
-            print(f"⚠️ This video URL was already processed. Skipping download.")
-            return result
+    # ✅ Skip duplicates
+    if any(item.get('url') == url for item in processed):
+        print("⚠️ Already processed. Skipping.")
+        return result
 
-    # ✅ Clean old files safely
-    for fpath in [video_file, json_file, transcript_file]:
-        try:
-            if os.path.exists(fpath):
-                os.remove(fpath)
-                print(f"🧹 Deleted old file: {os.path.basename(fpath)}")
-        except Exception as e:
-            print(f"⚠️ Failed to delete {os.path.basename(fpath)}: {e}")
+    # ✅ Clean up
+    for f in [video_file, json_file, transcript_file]:
+        if os.path.exists(f):
+            os.remove(f)
+            print(f"🧹 Deleted: {os.path.basename(f)}")
 
     try:
-        # ✅ yt-dlp settings
+        # ✅ Use cookies.txt (upload your exported file to project root)
+        cookie_path = os.path.join(save_path, "cookies.txt")
+        if not os.path.exists(cookie_path):
+            print("⚠️ cookies.txt not found — YouTube may block download.")
+
         ydl_opts = {
             'outtmpl': os.path.join(save_path, 'yt_video.%(ext)s'),
             'format': 'best',
@@ -97,7 +75,7 @@ def get_yt(url, save_path='.'):
             'writesubtitles': True,
             'writeautomaticsub': True,
             'subtitleslangs': ['en'],
-            'skip_download': False
+            'cookiefile': cookie_path if os.path.exists(cookie_path) else None,
         }
 
         with YoutubeDL(ydl_opts) as ydl:
@@ -107,75 +85,52 @@ def get_yt(url, save_path='.'):
             result['tags'] = info_dict.get('tags', [])
             result['video_file'] = video_file
 
-            # ✅ Try to extract transcript
-            transcript_text = ""
-            try:
-                subtitles = info_dict.get('subtitles', {})
-                automatic_captions = info_dict.get('automatic_captions', {})
-                all_subs = subtitles if subtitles else automatic_captions
-
-                if all_subs and 'en' in all_subs:
-                    sub_list = all_subs['en']
-                    for sub in sub_list:
-                        if 'url' in sub:
-                            try:
-                                sub_data = ydl.urlopen(sub['url']).read().decode('utf-8')
-                                lines = sub_data.split('\n')
-                                for line in lines:
-                                    if '-->' not in line and line.strip() and not line.strip().isdigit():
-                                        transcript_text += line.strip() + " "
-                                break
-                            except Exception as e:
-                                print(f"⚠️ Failed to read subtitles: {e}")
-                                continue
-                else:
-                    print("⚠️ No subtitles available in English.")
-            except Exception as e:
-                print(f"⚠️ Error while processing subtitles: {e}")
-
-            # ✅ Save transcript safely
-            if transcript_text:
-                try:
-                    with open(transcript_file, 'w', encoding='utf-8') as f:
-                        f.write(transcript_text.strip())
-                    result['transcript_file'] = transcript_file
-                    print("✅ Transcript saved as: yt_transcript.txt")
-                except Exception as e:
-                    print(f"⚠️ Could not save transcript: {e}")
+        # ✅ Transcript (if captions exist)
+        transcript_text = ""
+        try:
+            subs = info_dict.get('subtitles') or info_dict.get('automatic_captions') or {}
+            if 'en' in subs:
+                for sub in subs['en']:
+                    if 'url' in sub:
+                        sub_data = YoutubeDL().urlopen(sub['url']).read().decode('utf-8', errors='ignore')
+                        for line in sub_data.split('\n'):
+                            if '-->' not in line and line.strip() and not line.strip().isdigit():
+                                transcript_text += line.strip() + " "
+                        break
             else:
-                print("⚠️ No transcript found for this video.")
+                print("⚠️ No English subtitles available.")
+        except Exception as e:
+            print(f"⚠️ Subtitle parse failed: {e}")
 
-            # ✅ Save metadata
-            metadata = {
-                'title': result['title'],
-                'description': result['description'],
-                'tags': result['tags'],
-                'url': url,
-                'has_transcript': bool(transcript_text),
-                'schedule_date': schedule_date,
-                'schedule_time': schedule_datetime,
-                'processed_at': now_ist.strftime("%d-%m-%Y %I:%M:%S %p IST")
-            }
+        # ✅ Save transcript
+        if transcript_text:
+            with open(transcript_file, 'w', encoding='utf-8') as f:
+                f.write(transcript_text.strip())
+            result['transcript_file'] = transcript_file
+            print("✅ Transcript saved.")
+        else:
+            print("⚠️ No transcript found.")
 
-            try:
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(metadata, f, indent=4, ensure_ascii=False)
-            except Exception as e:
-                print(f"⚠️ Could not save metadata: {e}")
+        # ✅ Save metadata
+        metadata = {
+            'title': result['title'],
+            'description': result['description'],
+            'tags': result['tags'],
+            'url': url,
+            'has_transcript': bool(transcript_text),
+            'schedule_date': schedule_date,
+            'schedule_time': schedule_datetime,
+            'processed_at': now_ist.strftime("%d-%m-%Y %I:%M:%S %p IST")
+        }
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=4, ensure_ascii=False)
 
-            # ✅ Save schedule tracking safely
-            try:
-                processed.append(metadata)
-                with open(track_file, 'w', encoding='utf-8') as f:
-                    json.dump(processed, f, indent=4, ensure_ascii=False)
-                print(f"✅ Added to process_track.json")
-            except Exception as e:
-                print(f"⚠️ Could not update process_track.json: {e}")
+        # ✅ Update tracker
+        processed.append(metadata)
+        with open(track_file, 'w', encoding='utf-8') as f:
+            json.dump(processed, f, indent=4, ensure_ascii=False)
 
-            print(f"\n✅ Video downloaded as: yt_video.mp4")
-            print(f"✅ Metadata saved as: yt_metadata.json")
-            print(f"📅 Schedule: {schedule_datetime}")
-            print(f"💡 Next slot: {(schedule_time + timedelta(days=1)).strftime('%d-%m-%Y %I:%M %p IST')}")
+        print("✅ Download and save complete.")
 
     except Exception as e:
         print("❌ Error during download process:", e)
